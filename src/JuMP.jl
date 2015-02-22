@@ -734,9 +734,6 @@ function addConstraint(m::Model, c::SOCConstraint)
     ConstraintRef{SOCConstraint}(m,length(m.socconstr))
 end
 
-# Copy utility function, not exported
-Base.copy(c::SOCConstraint, new_model::Model) = SOCConstraint(copy(c.norm), copy(c.aff))
-
 ##########################################################################
 # ConstraintRef
 # Reference to a constraint for retrieving solution info
