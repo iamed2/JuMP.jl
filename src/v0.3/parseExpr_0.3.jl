@@ -137,21 +137,21 @@ _lift(x) = x
 
 addToExpression(aff, c, x) = _lift(aff) + _lift(c) * _lift(x)
 
-function parseCurly(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
+function parseCurly(x::Expr, aff::Symbol, coeffs)
     header = x.args[1]
     if length(x.args) < 3
         error("Need at least two arguments for $header")
     end
     if (header == :sum || header == :∑ || header == :Σ)
-        parseSum(x, aff, lcoeffs, rcoeffs)
+        parseSum(x, aff, coeffs)
     elseif header == :norm
-        parseNorm(x, aff, lcoeffs, rcoeffs)
+        parseNorm(x, aff, coeffs)
     else
         error("Expected sum or norm outside curly braces; got $header")
     end
 end
 
-function parseSum(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
+function parseSum(x::Expr, aff::Symbol, coeffs)
     # we have a filter condition
     if isexpr(x.args[2],:parameters)
         cond = x.args[2]
@@ -159,7 +159,7 @@ function parseSum(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
             error("No commas after semicolon allowed in sum expression, use && for multiple conditions")
         end
         # generate inner loop code first and then wrap in for loops
-        newaff, innercode = parseExpr(x.args[3], aff, lcoeffs, rcoeffs, aff)
+        newaff, innercode = parseExpr(x.args[3], aff, coeffs, aff)
         @assert aff == newaff
         code = quote
             if $(esc(cond.args[1]))
@@ -173,7 +173,7 @@ function parseSum(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
             end)
         end
     else # no condition
-        newaff, code = parseExpr(x.args[2], aff, lcoeffs, rcoeffs, aff)
+        newaff, code = parseExpr(x.args[2], aff, coeffs, aff)
         for level in length(x.args):-1:3
             code = :(
             for $(esc(x.args[level].args[1])) in $(esc(x.args[level].args[2]))
@@ -197,7 +197,7 @@ function parseSum(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
     code
 end
 
-function parseNorm(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
+function parseNorm(x::Expr, aff::Symbol, coeffs)
     @assert x.args[1] == :norm
     # we have a filter condition
     if isexpr(x.args[2],:parameters)
@@ -206,7 +206,7 @@ function parseNorm(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
             error("No commas after semicolon allowed in sum expression, use && for multiple conditions")
         end
         # generate inner loop code first and then wrap in for loops
-        newaff, innercode = parseExpr(x.args[3], :normaff, lcoeffs, rcoeffs)
+        newaff, innercode = parseExpr(x.args[3], :normaff, coeffs)
         code = quote
             if $(esc(cond.args[1]))
                 normaff = AffExpr()
@@ -222,7 +222,7 @@ function parseNorm(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
         end
         code = :(normexpr = AffExpr[]; $code; $aff = Norm(normexpr))
     else # no condition
-        newaff, code = parseExpr(x.args[2], :normaff, lcoeffs, rcoeffs)
+        newaff, code = parseExpr(x.args[2], :normaff, coeffs)
         for level in length(x.args):-1:3
             code = :(
             for $(esc(x.args[level].args[1])) in $(esc(x.args[level].args[2]))
@@ -243,16 +243,7 @@ function parseNorm(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
         preblock = quote
             $len = 0
             $preblock
-            if isa($aff,GenericAffExpr)
-                sizehint!($aff.vars,length($aff.vars)+$len)
-                sizehint!($aff.coeffs,length($aff.coeffs)+$len)
-            elseif isa($aff,GenericQuadExpr)
-                sizehint!($aff.qvars1,length($aff.qvars1)+$len)
-                sizehint!($aff.qvars2,length($aff.qvars2)+$len)
-                sizehint!($aff.qcoeffs,length($aff.qcoeffs)+$len)
-                sizehint!($aff.aff.vars,length($aff.aff.vars)+$len)
-                sizehint!($aff.aff.coeffs,length($aff.aff.coeffs)+$len)
-            end
+            _sizehint_expr!($aff, $len)
         end
         code = :($preblock;$code)
     end
@@ -262,36 +253,48 @@ end
 parseExprToplevel(x, aff::Symbol) = parseExpr(x, aff, [1.0])
 parseExpr(x, aff::Symbol, constantCoef::Vector) = parseExpr(x, aff, Expr(:call,:*,constantCoef...))
 
-function parseExpr(x, aff::Symbol, constantCoef::Union(Number, Expr))
+function parseExpr(x, aff::Symbol, constantCoef::Union(Number, Expr), newaff::Symbol=gensym())
     if !isa(x,Expr)
         # at the lowest level
-        return aff, :($aff = addToExpression($aff, $(esc(constantCoef)), $(esc(x))))
+        return newaff, :($newaff = addToExpression($aff, $(esc(constantCoef)), $(esc(x))))
     else
         if x.head == :call && x.args[1] == :+
-            return aff, Expr(:block,[parseExpr(arg,aff,constantCoef)[2] for arg in x.args[2:end]]...)
+            aff_, code = parseExpr(x.args[2], aff, constantCoef)
+            for arg in x.args[3:end]
+                aff_, code_ = parseExpr(arg, aff_, constantCoef)
+                code = :($code; $code_)
+            end
+            return newaff, :($code; $newaff=$aff_)
+            # return newaff, Expr(:block,[parseExpr(arg,aff,constantCoef,newaff)[2] for arg in x.args[2:end]]...)
         elseif x.head == :call && x.args[1] == :-
             if length(x.args) == 2 # unary subtraction
-                return parseExpr(x.args[2], aff, :(-1.0*$constantCoef))
+                return parseExpr(x.args[2], aff, :(-1.0*$constantCoef), newaff)
             else # a - b - c ...
-                return aff, Expr(:block,vcat(parseExpr(x.args[2], aff, constantCoef)[2],
-                     {parseExpr(arg, aff, :(-1.0*$constantCoef))[2] for arg in x.args[3:end]})...)
+                aff_, code = parseExpr(x.args[2], aff, constantCoef)
+                for arg in x.args[3:end]
+                    aff_, code_ = parseExpr(arg, aff_, :(-1.0*$constantCoef))
+                    code = :($code; $code_)
+                end
+                return newaff, :($code; $newaff=$aff_)
+                # return newaff, Expr(:block,vcat(parseExpr(x.args[2], aff, constantCoef)[2],
+                     # {parseExpr(arg, aff, :(-1.0*$constantCoef,newaff))[2] for arg in x.args[3:end]})...)
             end
         elseif x.head == :call && x.args[1] == :*
             coef = timescoef(x)
             var = timesvar(x)
-            return parseExpr(var, aff, :($constantCoef*$coef))
+            return parseExpr(var, aff, :($constantCoef*$coef), newaff)
         elseif x.head == :call && x.args[1] == :/
             @assert length(x.args) == 3
             numerator = x.args[2]
             denom = x.args[3]
-            return parseExpr(numerator, aff, :((1/$denom)*$constantCoef))
+            return parseExpr(numerator, aff, :((1/$denom)*$constantCoef), newaff)
         elseif x.head == :curly
             return aff, parseCurly(x,aff,constantCoef)
         else # at lowest level?
             if isexpr(x,:comparison)
                 error("Unexpected comparison in expression $x")
             end
-            return aff, :($aff = addToExpression($aff, $(esc(constantCoef)), $(esc(x))))
+            return newaff, :($newaff = addToExpression($aff, $(esc(constantCoef)), $(esc(x))))
         end
     end
 end

@@ -483,24 +483,23 @@ getValue(arr::Array{QuadExpr}) = map(getValue, arr)
 ##########################################################################
 # Norm
 # Container for √(∑ expr)
-type Norm
+type Norm{T}
     terms::Vector{AffExpr}
 end
-Norm() = Norm(AffExpr[])
 
-Base.norm{T<:Union(Variable,AffExpr)}(x::Array{T})  = Norm(reshape(x,length(x)))
-Base.norm(x::JuMPArray{Variable}) = Norm(collect(x.innerArray))
+Base.norm{T<:Union(Variable,AffExpr)}(x::Array{T})  = Norm{2}(reshape(x,length(x)))
+Base.norm(x::JuMPArray{Variable}) = Norm{2}(collect(x.innerArray))
 function Base.norm(x::JuMPDict{Variable})
     arr = Array(Variable, length(x))
     for (it,v) in enumerate(x)
         arr[it] = v[end]
     end
-    Norm(arr)
+    Norm{2}(arr)
 end
 
-Base.copy(x::Norm) = Norm(copy(x.terms))
+Base.copy{T}(x::Norm{T}) = Norm{T}(copy(x.terms))
 
-Base.convert(::Type{Norm}, x::Array) = Norm(convert(Vector{AffExpr}, vec(x)))
+Base.convert{T}(::Type{Norm{T}}, x::Array) = Norm{T}(convert(Vector{AffExpr}, vec(x)))
 
 ##########################################################################
 # NormExpr
