@@ -137,14 +137,21 @@ _lift(x) = x
 
 addToExpression(aff, c, x) = _lift(aff) + _lift(c) * _lift(x)
 
-function parseCurly(x::Expr, aff::Symbol, constantCoef)
-    if !(x.args[1] == :sum || x.args[1] == :∑ || x.args[1] == :Σ) # allow either N-ARY SUMMATION or GREEK CAPITAL LETTER SIGMA
-        error("Expected sum outside curly braces")
-    end
+function parseCurly(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
+    header = x.args[1]
     if length(x.args) < 3
-        error("Need at least two arguments for sum")
+        error("Need at least two arguments for $header")
     end
+    if (header == :sum || header == :∑ || header == :Σ)
+        parseSum(x, aff, lcoeffs, rcoeffs)
+    elseif header == :norm
+        parseNorm(x, aff, lcoeffs, rcoeffs)
+    else
+        error("Expected sum or norm outside curly braces; got $header")
+    end
+end
 
+function parseSum(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
     # we have a filter condition
     if isexpr(x.args[2],:parameters)
         cond = x.args[2]
@@ -152,9 +159,11 @@ function parseCurly(x::Expr, aff::Symbol, constantCoef)
             error("No commas after semicolon allowed in sum expression, use && for multiple conditions")
         end
         # generate inner loop code first and then wrap in for loops
+        newaff, innercode = parseExpr(x.args[3], aff, lcoeffs, rcoeffs, aff)
+        @assert aff == newaff
         code = quote
             if $(esc(cond.args[1]))
-                $(parseExpr(x.args[3], aff, constantCoef)[2])
+                $innercode
             end
         end
         for level in length(x.args):-1:4
@@ -164,7 +173,7 @@ function parseCurly(x::Expr, aff::Symbol, constantCoef)
             end)
         end
     else # no condition
-        code = parseExpr(x.args[2], aff, constantCoef)[2]
+        newaff, code = parseExpr(x.args[2], aff, lcoeffs, rcoeffs, aff)
         for level in length(x.args):-1:3
             code = :(
             for $(esc(x.args[level].args[1])) in $(esc(x.args[level].args[2]))
@@ -185,9 +194,69 @@ function parseCurly(x::Expr, aff::Symbol, constantCoef)
         end
         code = :($preblock;$code)
     end
+    code
+end
 
-
-    return code
+function parseNorm(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
+    @assert x.args[1] == :norm
+    # we have a filter condition
+    if isexpr(x.args[2],:parameters)
+        cond = x.args[2]
+        if length(cond.args) != 1
+            error("No commas after semicolon allowed in sum expression, use && for multiple conditions")
+        end
+        # generate inner loop code first and then wrap in for loops
+        newaff, innercode = parseExpr(x.args[3], :normaff, lcoeffs, rcoeffs)
+        code = quote
+            if $(esc(cond.args[1]))
+                normaff = AffExpr()
+                $innercode
+                push!(normexpr, $newaff)
+            end
+        end
+        for level in length(x.args):-1:4
+            code = :(
+            for $(esc(x.args[level].args[1])) in $(esc(x.args[level].args[2]))
+                $code
+            end)
+        end
+        code = :(normexpr = AffExpr[]; $code; $aff = Norm(normexpr))
+    else # no condition
+        newaff, code = parseExpr(x.args[2], :normaff, lcoeffs, rcoeffs)
+        for level in length(x.args):-1:3
+            code = :(
+            for $(esc(x.args[level].args[1])) in $(esc(x.args[level].args[2]))
+                normaff = AffExpr();
+                $code
+                push!(normexpr, $newaff);
+            end
+            )
+        end
+        code = :(normexpr = AffExpr[]; $code; $aff = Norm(normexpr))
+        len = :len
+        # precompute the number of elements to add
+        # this is unncessary if we're just summing constants
+        preblock = :($len += length($(esc(x.args[length(x.args)].args[2]))))
+        for level in (length(x.args)-1):-1:3
+            preblock = Expr(:for, esc(x.args[level]),preblock)
+        end
+        preblock = quote
+            $len = 0
+            $preblock
+            if isa($aff,GenericAffExpr)
+                sizehint!($aff.vars,length($aff.vars)+$len)
+                sizehint!($aff.coeffs,length($aff.coeffs)+$len)
+            elseif isa($aff,GenericQuadExpr)
+                sizehint!($aff.qvars1,length($aff.qvars1)+$len)
+                sizehint!($aff.qvars2,length($aff.qvars2)+$len)
+                sizehint!($aff.qcoeffs,length($aff.qcoeffs)+$len)
+                sizehint!($aff.aff.vars,length($aff.aff.vars)+$len)
+                sizehint!($aff.aff.coeffs,length($aff.aff.coeffs)+$len)
+            end
+        end
+        code = :($preblock;$code)
+    end
+    code
 end
 
 parseExprToplevel(x, aff::Symbol) = parseExpr(x, aff, [1.0])

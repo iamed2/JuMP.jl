@@ -209,8 +209,6 @@ addToExpression(aff, c, x) = _lift(aff) + _lift(c) * _lift(x)
         coef_expr = Expr(:call, :*, [:(args[$i]) for i in 1:(length(args)-1)]...)
         return :(addToExpression(ex, $coef_expr, args[$(length(args))]))
     end
-
-
 end
 
 function parseCurly(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
@@ -283,7 +281,6 @@ function parseNorm(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
         end
         # generate inner loop code first and then wrap in for loops
         newaff, innercode = parseExpr(x.args[3], :normaff, lcoeffs, rcoeffs)
-        @assert aff == newaff
         code = quote
             if $(esc(cond.args[1]))
                 normaff = AffExpr()
