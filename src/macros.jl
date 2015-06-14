@@ -190,6 +190,12 @@ end
 
 _construct_constraint!(quad::QuadExpr, sense::Symbol) = QuadConstraint(quad, sense)
 
+function _construct_constraint!(normexpr::NormExpr, sense::Symbol)
+    # check that the constraint is SOC representable
+
+    SOCConstraint(normexpr)
+end
+
 _construct_constraint!(x::Array, sense::Symbol) = map(c->_construct_constraint!(c,sense), x)
 
 _vectorize_like(x::Number, y::Array{AffExpr}) = fill(x, size(y))

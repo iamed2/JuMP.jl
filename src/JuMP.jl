@@ -20,8 +20,8 @@ using Compat
 
 export
 # Objects
-    Model, Variable, AffExpr, QuadExpr,
-    LinearConstraint, QuadConstraint, SDPConstraint,
+    Model, Variable, Norm, AffExpr, QuadExpr, NormExpr,
+    LinearConstraint, QuadConstraint, SDPConstraint, NormConstraint,
     ConstraintRef, LinConstrRef,
 # Functions
     # Model related
@@ -480,6 +480,41 @@ end
 getValue(arr::Array{QuadExpr}) = map(getValue, arr)
 
 ##########################################################################
+# Norm
+# Container for √(∑ expr)
+type Norm
+    terms::Vector{AffExpr}
+end
+Norm() = Norm(AffExpr[])
+
+Base.norm{T<:Union(Variable,AffExpr)}(x::Array{T})  = Norm(reshape(x,length(x)))
+Base.norm(x::JuMPArray{Variable}) = Norm(collect(x.innerArray))
+function Base.norm(x::JuMPDict{Variable})
+    arr = Array(Variable, length(x))
+    for (it,v) in enumerate(x)
+        arr[it] = v[end]
+    end
+    Norm(arr)
+end
+
+Base.copy(x::Norm) = Norm(copy(x.terms))
+
+Base.convert(::Type{Norm}, x::Array) = Norm(convert(Vector{AffExpr}, vec(x)))
+
+##########################################################################
+# NormExpr
+# Container for expressions containing Norms and AffExprs
+type NormExpr
+    norm::Norm
+    coeff::Float64
+    aff::AffExpr
+end
+
+Base.copy(x::NormExpr) = NormExpr(copy(x.norm), x.coeff, copy(x.aff))
+
+Base.convert(::Type{NormExpr}, x::Norm) = NormExpr(x, 1.0, zero(AffExpr))
+
+##########################################################################
 # JuMPConstraint
 # abstract base for constraint types
 abstract JuMPConstraint
@@ -689,21 +724,23 @@ end
 # SOCConstraint is a second-order cone constraint of the form
 # ||Ax-b||₂ + cᵀx + d ≤ 0
 
-type SOCConstraint
-    norm::Vector{AffExpr}
-    aff::AffExpr
+type SOCConstraint <: JuMPConstraint
+    normexpr::NormExpr
+    function SOCConstraint(x::NormExpr)
+        # check that the norm constraint is SOC representable
+
+        new(x)
+    end
 end
 
 function addConstraint(m::Model, c::SOCConstraint)
     push!(m.socconstr,c)
     m.internalModelLoaded = false
-    return ConstraintRef{SOCConstraint}(m,length(m.socconstr))
+    ConstraintRef{SOCConstraint}(m,length(m.socconstr))
 end
 
 # Copy utility function, not exported
-function Base.copy(c::SOCConstraint, new_model::Model)
-    return SOCConstraint(copy(c.norm), copy(c.aff))
-end
+Base.copy(c::SOCConstraint, new_model::Model) = SOCConstraint(copy(c.norm), copy(c.aff))
 
 ##########################################################################
 # ConstraintRef
@@ -810,6 +847,8 @@ end
 
 ##########################################################################
 # Operator overloads
+typealias JuMPTypes Union(Variable,Norm,AffExpr,QuadExpr,NormExpr)
+
 include("operators.jl")
 if VERSION > v"0.4-"
     include(joinpath("v0.4","concatenation.jl"))

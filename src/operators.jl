@@ -22,6 +22,10 @@
 (+)(lhs::Number, rhs::Variable) = AffExpr([rhs],[+1.],convert(Float64,lhs))
 (-)(lhs::Number, rhs::Variable) = AffExpr([rhs],[-1.],convert(Float64,lhs))
 (*)(lhs::Number, rhs::Variable) = AffExpr([rhs],[convert(Float64,lhs)], 0.)
+# Number--Norm
+(+)(lhs::Number, rhs::Norm) = NormExpr(copy(rhs),  1.0, convert(Float64,lhs))
+(-)(lhs::Number, rhs::Norm) = NormExpr(copy(rhs), -1.0, convert(Float64,lhs))
+(*)(lhs::Number, rhs::Norm) = NormExpr(copy(rhs), lhs, zero(AffExpr))
 # Number--GenericAffExpr
 (+)(lhs::Number, rhs::GenericAffExpr) = GenericAffExpr(copy(rhs.vars),copy(rhs.coeffs),lhs+rhs.constant)
 (-)(lhs::Number, rhs::GenericAffExpr) = GenericAffExpr(copy(rhs.vars),    -rhs.coeffs ,lhs-rhs.constant)
@@ -30,6 +34,10 @@
 (+)(lhs::Number, rhs::QuadExpr) = QuadExpr(copy(rhs.qvars1),copy(rhs.qvars2),copy(rhs.qcoeffs),lhs+rhs.aff)
 (-)(lhs::Number, rhs::QuadExpr) = QuadExpr(copy(rhs.qvars1),copy(rhs.qvars2),    -rhs.qcoeffs ,lhs-rhs.aff)
 (*)(lhs::Number, rhs::QuadExpr) = QuadExpr(copy(rhs.qvars1),copy(rhs.qvars2), lhs*rhs.qcoeffs ,lhs*rhs.aff)
+# Number--NormExpr
+(+)(lhs::Number, rhs::NormExpr) = NormExpr(copy(rhs.norm),     rhs.coeff, lhs+rhs.aff)
+(-)(lhs::Number, rhs::NormExpr) = NormExpr(copy(rhs.norm),     rhs.coeff, lhs-rhs.aff)
+(*)(lhs::Number, rhs::NormExpr) = NormExpr(copy(rhs.norm), lhs*rhs.coeff, lhs*rhs.aff)
 
 # This is not well defined if variable types are different, but needed to avoid ambiguities
 (+)(lhs::GenericAffExpr, rhs::GenericAffExpr) = (+)(promote(lhs,rhs)...)
@@ -48,6 +56,9 @@
 (+)(lhs::Variable, rhs::Variable) = AffExpr([lhs,rhs], [1.,+1.], 0.)
 (-)(lhs::Variable, rhs::Variable) = AffExpr([lhs,rhs], [1.,-1.], 0.)
 (*)(lhs::Variable, rhs::Variable) = QuadExpr([lhs],[rhs],[1.],AffExpr(Variable[],Float64[],0.))
+# Variable--Norm
+(+)(lhs::Variable, rhs::Norm) = NormExpr(copy(rhs),  1.0, AffExpr(lhs))
+(-)(lhs::Variable, rhs::Norm) = NormExpr(copy(rhs), -1.0, AffExpr(lhs))
 # Variable--AffExpr
 (+){CoefType,VarType}(lhs::VarType, rhs::GenericAffExpr{CoefType,VarType}) =
     GenericAffExpr{CoefType,VarType}(vcat(rhs.vars,lhs),vcat( rhs.coeffs,one(CoefType)), rhs.constant)
@@ -65,6 +76,28 @@ end
 # Variable--QuadExpr
 (+)(v::Variable, q::QuadExpr) = QuadExpr(copy(q.qvars1),copy(q.qvars2),copy(q.qcoeffs),v+q.aff)
 (-)(v::Variable, q::QuadExpr) = QuadExpr(copy(q.qvars1),copy(q.qvars2),    -q.qcoeffs ,v-q.aff)
+# Variable--NormExpr
+(+)(lhs::Variable, rhs::NormExpr) = NormExpr(copy(rhs.norm),  rhs.coeff, lhs+rhs.aff)
+(-)(lhs::Variable, rhs::NormExpr) = NormExpr(copy(rhs.norm), -rhs.coeff, lhs-rhs.aff)
+
+# Norm
+(+)(lhs::Norm) = lhs
+(-)(lhs::Norm) = NormExpr(copy(lhs), -1.0, zero(AffExpr))
+(*)(lhs::Norm) = lhs
+# Norm--Number
+(+)(lhs::Norm,rhs::Number) = NormExpr(copy(lhs), 1.0, AffExpr( rhs))
+(-)(lhs::Norm,rhs::Number) = NormExpr(copy(lhs), 1.0, AffExpr(-rhs))
+(*)(lhs::Norm,rhs::Number) = NormExpr(copy(lhs.terms),   rhs, zero(AffExpr))
+(/)(lhs::Norm,rhs::Number) = NormExpr(copy(lhs.terms), 1/rhs, zero(AffExpr))
+# Norm--Variable
+(+)(lhs::Norm,rhs::Variable) = NormExpr(copy(lhs), 1.0, AffExpr( rhs))
+(-)(lhs::Norm,rhs::Variable) = NormExpr(copy(lhs), 1.0, AffExpr(-rhs))
+# Norm--Norm
+# Norm--AffExpr
+(+)(lhs::Norm,rhs::AffExpr) = NormExpr(copy(lhs), 1.0, copy(rhs))
+(-)(lhs::Norm,rhs::AffExpr) = NormExpr(copy(lhs), 1.0,     -rhs)
+# Norm--QuadExpr
+# Norm--NormExpr
 
 # AffExpr (GenericAffExpr)
 (+)(lhs::GenericAffExpr) = lhs
@@ -85,6 +118,9 @@ end
 (-){CoefType,VarType}(lhs::GenericAffExpr{CoefType,VarType}, rhs::VarType) = GenericAffExpr{CoefType,VarType}(vcat(lhs.vars,rhs),vcat(lhs.coeffs,-one(CoefType)),lhs.constant)
 (*)(lhs::AffExpr, rhs::Variable) = (*)(rhs,lhs)
 (/)(lhs::AffExpr, rhs::Variable) = error("Cannot divide affine expression by a variable")
+# AffExpr--Norm
+(+)(lhs::AffExpr, rhs::Norm) = NormExpr([rhs], [ one(AffExpr)], lhs)
+(+)(lhs::AffExpr, rhs::Norm) = NormExpr([rhs], [-one(AffExpr)], lhs)
 # AffExpr--AffExpr
 (+){T<:GenericAffExpr}(lhs::T, rhs::T) = GenericAffExpr(vcat(lhs.vars,rhs.vars),vcat(lhs.coeffs, rhs.coeffs),lhs.constant+rhs.constant)
 (-){T<:GenericAffExpr}(lhs::T, rhs::T) = GenericAffExpr(vcat(lhs.vars,rhs.vars),vcat(lhs.coeffs,-rhs.coeffs),lhs.constant-rhs.constant)
@@ -145,7 +181,9 @@ end
 # AffExpr--QuadExpr
 (+)(a::AffExpr, q::QuadExpr) = QuadExpr(copy(q.qvars1),copy(q.qvars2),copy(q.qcoeffs),a+q.aff)
 (-)(a::AffExpr, q::QuadExpr) = QuadExpr(copy(q.qvars1),copy(q.qvars2),    -q.qcoeffs ,a-q.aff)
-
+# AffExpr--NormExpr
+(+)(lhs::AffExpr, rhs::NormExpr) = NormExpr(copy(rhs.norm),  1.0, lhs+rhs.aff)
+(-)(lhs::AffExpr, rhs::NormExpr) = NormExpr(copy(rhs.norm), -1.0, lhs-rhs.aff)
 
 # QuadExpr
 (+)(lhs::QuadExpr) = lhs
@@ -171,6 +209,25 @@ end
                                             vcat(q1.qcoeffs, q2.qcoeffs),   q1.aff + q2.aff)
 (-)(q1::QuadExpr, q2::QuadExpr) = QuadExpr( vcat(q1.qvars1, q2.qvars1),     vcat(q1.qvars2, q2.qvars2),
                                             vcat(q1.qcoeffs, -q2.qcoeffs),  q1.aff - q2.aff)
+
+# NormExpr
+(+)(lhs::NormExpr) = lhs
+(-)(lhs::NormExpr) = NormExpr(copy(lhs.norm), -1.0, -lhs.aff)
+(*)(lhs::NormExpr) = lhs
+# NormExpr--Number
+(+)(lhs::NormExpr,rhs::Number) = NormExpr(copy(lhs.norm), lhs.coeff, lhs.aff+rhs)
+(-)(lhs::NormExpr,rhs::Number) = NormExpr(copy(lhs.norm), lhs.coeff, lhs.aff-rhs)
+(*)(lhs::NormExpr,rhs::Number) = NormExpr(copy(lhs.norm), lhs.coeff*rhs, lhs.aff*rhs)
+(/)(lhs::NormExpr,rhs::Number) = NormExpr(copy(lhs.norm), lhs.coeff/rhs, lhs.aff/rhs)
+# NormExpr--Variable
+(+)(lhs::NormExpr,rhs::Variable) = NormExpr(copy(lhs.norm), lhs.coeff, lhs.aff+rhs)
+(-)(lhs::NormExpr,rhs::Variable) = NormExpr(copy(lhs.norm), lhs.coeff, lhs.aff-rhs)
+# NormExpr--Norm
+# NormExpr--AffExpr
+(+)(lhs::NormExpr,rhs::AffExpr) = NormExpr(copy(lhs.norm), lhs.coeff, lhs.aff+rhs)
+(-)(lhs::NormExpr,rhs::AffExpr) = NormExpr(copy(lhs.norm), lhs.coeff, lhs.aff-rhs)
+# NormExpr--QuadExpr
+# NormExpr--NormExpr
 
 # (==)(lhs::AffExpr,rhs::AffExpr) = (lhs.vars == rhs.vars) && (lhs.coeffs == rhs.coeffs) && (lhs.constant == rhs.constant)
 # (==)(lhs::QuadExpr,rhs::QuadExpr) = (lhs.qvars1 == rhs.qvars1) && (lhs.qvars2 == rhs.qvars2) && (lhs.qcoeffs == rhs.qcoeffs) && (lhs.aff == rhs.aff)
@@ -230,8 +287,6 @@ end
 #  - sum
 #  - dot
 #############################################################################
-
-typealias JuMPTypes Union(Variable,AffExpr,QuadExpr)
 
 Base.sum(j::JuMPArray) = sum(j.innerArray)
 Base.sum(j::JuMPDict)  = sum(values(j.tupledict))
