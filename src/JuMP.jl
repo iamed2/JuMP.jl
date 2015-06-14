@@ -63,6 +63,7 @@ type Model
 
     # Column data
     numCols::Int
+    numAuxCols::Int
     colNames::Vector{String}
     colNamesIJulia::Vector{String}
     colLower::Vector{Float64}
@@ -726,11 +727,6 @@ end
 
 type SOCConstraint <: JuMPConstraint
     normexpr::NormExpr
-    function SOCConstraint(x::NormExpr)
-        # check that the norm constraint is SOC representable
-
-        new(x)
-    end
 end
 
 function addConstraint(m::Model, c::SOCConstraint)

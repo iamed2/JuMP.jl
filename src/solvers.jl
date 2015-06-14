@@ -28,7 +28,7 @@ function solve(m::Model; suppress_warnings=false, ignore_solve_hook=(m.solvehook
     end
 
     if isa(m.solver,UnsetSolver) &&
-      (length(m.obj.qvars1) > 0 || length(m.quadconstr) > 0)
+      (length(m.obj.qvars1) > 0 || length(m.quadconstr) > 0 || length(m.socconstr) > 0)
         m.solver = MathProgBase.defaultQPsolver
     end
     if anyInts
@@ -89,6 +89,41 @@ function addQuadratics(m::Model)
             error("Solver does not support quadratic constraints")
         end
     end
+
+    auxidx = m.numCols
+    for c in m.socconstr
+        soc = c.normexpr
+        MathProgBase.addvar!(m.internalModel, 0.0, Inf, 0.0)
+        auxidx += 1
+        startidx = auxidx
+        @show vcat(Int[v.col for v in soc.aff.vars], auxidx), vcat(soc.aff.coeffs, 1.0), -soc.aff.constant, -soc.aff.constant
+        MathProgBase.addconstr!(m.internalModel,
+                                vcat(Int[v.col for v in soc.aff.vars], auxidx),
+                                vcat(soc.aff.coeffs, 1.0),
+                                -soc.aff.constant,
+                                -soc.aff.constant)
+        for term in soc.norm.terms
+            MathProgBase.addvar!(m.internalModel, -Inf, Inf, 0.0)
+            auxidx += 1
+            @show vcat(Int[v.col for v in term.vars], auxidx), vcat(term.coeffs, -1.0), 0.0, 0.0
+            MathProgBase.addconstr!(m.internalModel,
+                                    vcat(Int[v.col for v in term.vars], auxidx),
+                                    vcat(term.coeffs, -1.0),
+                                    -term.constant,
+                                    -term.constant)
+        end
+        @show Int[], Float64[], collect(startidx:auxidx), collect(startidx:auxidx), vcat(-1.0, ones(auxidx-startidx)), '<', 0.0
+        MathProgBase.addquadconstr!(m.internalModel,
+                                    Int[],
+                                    Float64[],
+                                    collect(startidx:auxidx),
+                                    collect(startidx:auxidx),
+                                    vcat(-1.0, ones(auxidx-startidx)),
+                                    '<',
+                                    0.0)
+    end
+    m.numAuxCols += auxidx - m.numCols
+    nothing
 end
 
 function addSOS(m::Model)

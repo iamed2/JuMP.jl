@@ -192,8 +192,15 @@ _construct_constraint!(quad::QuadExpr, sense::Symbol) = QuadConstraint(quad, sen
 
 function _construct_constraint!(normexpr::NormExpr, sense::Symbol)
     # check that the constraint is SOC representable
-
-    SOCConstraint(normexpr)
+    if sense == :(<=)
+        normexpr.coeff >= 0 || error("Constraint $normexpr <= 0 is not SOC representable")
+        SOCConstraint(normexpr)
+    elseif sense == :(>=)
+        normexpr.coeff <= 0 || error("Constraint $normexpr >= 0 is not SOC representable")
+        SOCConstraint(-normexpr)
+    else
+        error("Invalid sense $sense is SOC constraint")
+    end
 end
 
 _construct_constraint!(x::Array, sense::Symbol) = map(c->_construct_constraint!(c,sense), x)
