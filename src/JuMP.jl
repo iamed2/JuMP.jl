@@ -58,7 +58,7 @@ type Model
     linconstr#::Vector{LinearConstraint}
     quadconstr
     sosconstr
-    socconstr
+    normconstr
     sdpconstr
 
     # Column data
@@ -119,7 +119,7 @@ function Model(;solver=UnsetSolver())
         error("solver argument ($solver) must be an AbstractMathProgSolver")
     end
     Model(zero(QuadExpr),:Min,LinearConstraint[],QuadConstraint[],
-          SOSConstraint[],SOCConstraint[],SDPConstraint[],
+          SOSConstraint[],NormConstraint[],SDPConstraint[],
           0,String[],String[],Float64[],Float64[],Symbol[],
           0,Float64[],Float64[],Float64[],nothing,solver,
           false,Any[],nothing,nothing,JuMPContainer[],
@@ -372,6 +372,7 @@ Base.copy(aff::GenericAffExpr) = GenericAffExpr(copy(aff.vars),copy(aff.coeffs),
 typealias AffExpr GenericAffExpr{Float64,Variable}
 
 AffExpr() = zero(AffExpr)
+AffExpr(x::Union(Number,Variable)) = convert(AffExpr, x)
 
 Base.isempty(a::AffExpr) = (length(a.vars) == 0 && a.constant == 0.)
 Base.convert(::Type{AffExpr}, v::Variable) = AffExpr([v], [1.], 0.)
@@ -504,15 +505,15 @@ Base.convert{T}(::Type{Norm{T}}, x::Array) = Norm{T}(convert(Vector{AffExpr}, ve
 ##########################################################################
 # NormExpr
 # Container for expressions containing Norms and AffExprs
-type NormExpr
-    norm::Norm
+type NormExpr{T}
+    norm::Norm{T}
     coeff::Float64
     aff::AffExpr
 end
 
-Base.copy(x::NormExpr) = NormExpr(copy(x.norm), x.coeff, copy(x.aff))
+Base.copy{T}(x::NormExpr{T}) = NormExpr{T}(copy(x.norm), x.coeff, copy(x.aff))
 
-Base.convert(::Type{NormExpr}, x::Norm) = NormExpr(x, 1.0, zero(AffExpr))
+Base.convert{T}(::Type{NormExpr{T}}, x::Norm{T}) = NormExpr{T}(x, 1.0, zero(AffExpr))
 
 ##########################################################################
 # JuMPConstraint
@@ -724,14 +725,14 @@ end
 # SOCConstraint is a second-order cone constraint of the form
 # ||Ax-b||₂ + cᵀx + d ≤ 0
 
-type SOCConstraint <: JuMPConstraint
-    normexpr::NormExpr
+type NormConstraint{T} <: JuMPConstraint
+    normexpr::NormExpr{T}
 end
 
-function addConstraint(m::Model, c::SOCConstraint)
-    push!(m.socconstr,c)
+function addConstraint{T}(m::Model, c::NormConstraint{T})
+    push!(m.normconstr,c)
     m.internalModelLoaded = false
-    ConstraintRef{SOCConstraint}(m,length(m.socconstr))
+    ConstraintRef{NormConstraint{T}}(m,length(m.normconstr))
 end
 
 ##########################################################################

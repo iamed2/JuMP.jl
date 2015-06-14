@@ -218,8 +218,12 @@ function parseCurly(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
     end
     if (header == :sum || header == :∑ || header == :Σ)
         parseSum(x, aff, lcoeffs, rcoeffs)
-    elseif header == :norm
+    elseif header == :norm2
         parseNorm(x, aff, lcoeffs, rcoeffs)
+    elseif header == :norminf
+        parseNorm(x, aff, lcoeffs, rcoeffs, normtype=:(Norm{Inf}))
+    elseif header == :norm1
+        parseNorm(x, aff, lcoeffs, rcoeffs, normtype=:(Norm{1}))
     else
         error("Expected sum or norm outside curly braces; got $header")
     end
@@ -271,8 +275,8 @@ function parseSum(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
     code
 end
 
-function parseNorm(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
-    @assert x.args[1] == :norm
+function parseNorm(x::Expr, aff::Symbol, lcoeffs, rcoeffs, normtype=:(Norm{2}))
+    @assert string(x.args[1])[1:4] == "norm"
     # we have a filter condition
     if isexpr(x.args[2],:parameters)
         cond = x.args[2]
@@ -294,7 +298,7 @@ function parseNorm(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
                 $code
             end)
         end
-        code = :(normexpr = AffExpr[]; $code; $aff = Norm(normexpr))
+        code = :(normexpr = AffExpr[]; $code; $aff = $normtype(normexpr))
     else # no condition
         newaff, code = parseExpr(x.args[2], :normaff, lcoeffs, rcoeffs)
         for level in length(x.args):-1:3
@@ -306,7 +310,7 @@ function parseNorm(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
             end
             )
         end
-        code = :(normexpr = AffExpr[]; $code; $aff = Norm(normexpr))
+        code = :(normexpr = AffExpr[]; $code; $aff = $normtype(normexpr))
         len = :len
         # precompute the number of elements to add
         # this is unncessary if we're just summing constants

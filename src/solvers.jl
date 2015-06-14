@@ -28,7 +28,7 @@ function solve(m::Model; suppress_warnings=false, ignore_solve_hook=(m.solvehook
     end
 
     if isa(m.solver,UnsetSolver) &&
-      (length(m.obj.qvars1) > 0 || length(m.quadconstr) > 0 || length(m.socconstr) > 0)
+      (length(m.obj.qvars1) > 0 || length(m.quadconstr) > 0 || length(m.normconstr) > 0)
         m.solver = MathProgBase.defaultQPsolver
     end
     if anyInts
@@ -91,7 +91,7 @@ function addQuadratics(m::Model)
     end
 
     auxidx = m.numCols
-    for c in m.socconstr
+    for c in m.normconstr
         soc = c.normexpr
         MathProgBase.addvar!(m.internalModel, 0.0, Inf, 0.0)
         auxidx += 1
