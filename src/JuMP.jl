@@ -484,11 +484,14 @@ getValue(arr::Array{QuadExpr}) = map(getValue, arr)
 ##########################################################################
 # Norm
 # Container for √(∑ expr)
-type Norm{T}
-    terms::Vector{AffExpr}
+type GenericNorm{T,S<:GenericAffExpr}
+    terms::Vector{S}
 end
 
-Base.norm{T<:Union(Variable,AffExpr)}(x::Array{T})  = Norm{2}(reshape(x,length(x)))
+typealias Norm{T} GenericNorm{T,AffExpr}
+
+Base.norm(x::Array{Variable})  = Norm{2}(reshape(x,length(x)))
+Base.norm{T<:GenericAffExpr}(x::Array{T})  = Norm{2,T}(reshape(x,length(x)))
 Base.norm(x::JuMPArray{Variable}) = Norm{2}(collect(x.innerArray))
 function Base.norm(x::JuMPDict{Variable})
     arr = Array(Variable, length(x))
@@ -498,22 +501,25 @@ function Base.norm(x::JuMPDict{Variable})
     Norm{2}(arr)
 end
 
-Base.copy{T}(x::Norm{T}) = Norm{T}(copy(x.terms))
+Base.copy{T,S}(x::GenericNorm{T,S}) = GenericNorm{T,S}(copy(x.terms))
 
-Base.convert{T}(::Type{Norm{T}}, x::Array) = Norm{T}(convert(Vector{AffExpr}, vec(x)))
+Base.convert{T,S}(::Type{GenericNorm{T,S}}, x::Array{S}) = GenericNorm{T,S}(convert(Vector{S}, vec(x)))
 
 ##########################################################################
 # NormExpr
 # Container for expressions containing Norms and AffExprs
-type NormExpr{T}
-    norm::Norm{T}
+type GenericNormExpr{T,S}
+    norm::GenericNorm{T,S}
     coeff::Float64
     aff::AffExpr
 end
 
-Base.copy{T}(x::NormExpr{T}) = NormExpr{T}(copy(x.norm), x.coeff, copy(x.aff))
+typealias NormExpr{T} GenericNormExpr{T,AffExpr}
 
-Base.convert{T}(::Type{NormExpr{T}}, x::Norm{T}) = NormExpr{T}(x, 1.0, zero(AffExpr))
+Base.copy{T,S}(x::GenericNormExpr{T,S}) = GenericNormExpr{T,S}(copy(x.norm), x.coeff, copy(x.aff))
+
+Base.convert{T,S,R}(::Type{GenericNormExpr{T,GenericAffExpr{R,S}}}, x::GenericNorm{T,S}) =
+    GenericNormExpr{T,S}(x, one(R), zero(GenericAffExpr{R,S}))
 
 ##########################################################################
 # JuMPConstraint
@@ -725,14 +731,16 @@ end
 # SOCConstraint is a second-order cone constraint of the form
 # ||Ax-b||₂ + cᵀx + d ≤ 0
 
-type NormConstraint{T} <: JuMPConstraint
-    normexpr::NormExpr{T}
+type GenericNormConstraint{T,S<:GenericAffExpr} <: JuMPConstraint
+    normexpr::GenericNormExpr{T,S}
 end
 
-function addConstraint{T}(m::Model, c::NormConstraint{T})
+typealias NormConstraint{T} GenericNormConstraint{T,AffExpr}
+
+function addConstraint{T,S}(m::Model, c::GenericNormConstraint{T,S})
     push!(m.normconstr,c)
     m.internalModelLoaded = false
-    ConstraintRef{NormConstraint{T}}(m,length(m.normconstr))
+    ConstraintRef{GenericNormConstraint{T,S}}(m,length(m.normconstr))
 end
 
 ##########################################################################
