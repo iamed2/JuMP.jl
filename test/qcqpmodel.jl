@@ -155,6 +155,18 @@ context("With solver $(typeof(solver))") do
     @fact modV.objVal => roughly(sqrt(1/2), 1e-6)
     @fact norm([getValue(x), getValue(y), getValue(t)] - [0.5,0.5,sqrt(1/2)]) => roughly(0.0,1e-3)
 
+    # Norm version
+    modN = Model(solver=solver)
+    @defVar(modN, x)
+    @defVar(modN, y)
+    @defVar(modN, t >= 0)
+    @setObjective(modN, Min, t)
+    @addConstraint(modN, x + y >= 1)
+    @addConstraint(modN, norm([x,y]) <= t)
+
+    @fact solve(modN) => :Optimal
+    @fact modN.objVal => roughly(sqrt(1/2), 1e-6)
+    @fact norm([getValue(x), getValue(y), getValue(t)] - [0.5,0.5,sqrt(1/2)]) => roughly(0.0,1e-3)
 end; end; end
 
 facts("[qcqpmodel] Test SOC duals") do
@@ -199,6 +211,18 @@ context("With solver $(typeof(solver))") do
 
 end; end; end
 
+facts("[qcqpmodel] Test simple normed problem") do
+for solver in soc_solvers
+context("With solver $(typeof(solver))") do
+    m = Model(solver=solver);
+    @defVar(m, x[1:3]);
+    @addConstraint(m, norm2{x[i]-1, i=1:3} <= 1)
+    @setObjective(m, Max, x[1]+x[2])
+
+    @fact solve(m) => :Optimal
+    @fact getObjectiveValue(modN) => roughly(2+sqrt(2), 1e-5)
+    @fact norm(getValue(x)-[1+sqrt(1/2),1+sqrt(1/2),1]) => roughly(0, 1e-6)
+end; end; end
 
 facts("[qcqpmodel] Test quad problem modification") do
 for solver in quad_solvers
