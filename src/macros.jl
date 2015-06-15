@@ -190,14 +190,14 @@ end
 
 _construct_constraint!(quad::QuadExpr, sense::Symbol) = QuadConstraint(quad, sense)
 
-function _construct_constraint!(normexpr::NormExpr, sense::Symbol)
+function _construct_constraint!{Power}(normexpr::NormExpr{Power}, sense::Symbol)
     # check that the constraint is SOC representable
     if sense == :(<=)
         normexpr.coeff >= 0 || error("Constraint $normexpr <= 0 is not representable. Check that it is convex.")
-        NormConstraint(normexpr)
+        NormConstraint{Power}(normexpr)
     elseif sense == :(>=)
         normexpr.coeff <= 0 || error("Constraint $normexpr >= 0 is not representable. Check that it is convex.")
-        NormConstraint(-normexpr)
+        NormConstraint{Power}(-normexpr)
     else
         error("Invalid sense $sense is SOC constraint")
     end

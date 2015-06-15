@@ -27,11 +27,9 @@ function solve(m::Model; suppress_warnings=false, ignore_solve_hook=(m.solvehook
         return solvenlp(m, suppress_warnings=suppress_warnings)
     end
 
-    anySOC = any(m.normconstr) do c
-        isa(c,NormConstraint{2})
-    end
+    addTransConstrs(m)
 
-    anyQuad = length(m.obj.qvars1) > 0 || length(m.quadconstr) > 0 || anySOC
+    anyQuad = length(m.obj.qvars1) > 0 || length(m.quadconstr) > 0
 
     if isa(m.solver,UnsetSolver) && anyQuad
         m.solver = MathProgBase.defaultQPsolver
@@ -105,109 +103,147 @@ function addTransConstrs(m::Model)
 end
 
 function process_constraint(m::Model, c::NormConstraint{1})
-    auxidx = m.numCols + m.numAuxCols
-    startidx = auxidx + 1
-    for term in c.normexpr.norm.terms
-        MathProgBase.addvar!(m.internalModel, 0.0, Inf, 0.0)
-        auxidx += 1
-        # aux >= aff  <-->  aux - aff.terms >= aff.constant  <--> -aux + aff.terms <= -aff.constant
-        @show (vcat(Int[v.col for v in term.vars], auxidx),
-                                vcat(term.coeffs, -1.0),
-                                -Inf,
-                                -term.constant)
-        MathProgBase.addconstr!(m.internalModel,
-                                vcat(Int[v.col for v in term.vars], auxidx),
-                                vcat(term.coeffs, -1.0),
-                                -Inf,
-                                -term.constant)
-        # aux >= -aff  <-->  aux + aff.norm >= -aff.constant
-        @show (vcat(Int[v.col for v in term.vars], auxidx),
-                                vcat(term.coeffs, 1.0),
-                                -term.constant,
-                                Inf)
-        MathProgBase.addconstr!(m.internalModel,
-                                vcat(Int[v.col for v in term.vars], auxidx),
-                                vcat(term.coeffs, 1.0),
-                                -term.constant,
-                                Inf)
+    ne = c.normexpr
+    N = length(ne.norm.terms)
+    @defVar(m, aux[1:N] >= 0)
+    for i in 1:N
+        term = ne.norm.terms[i]
+        @addConstraint(m, aux[i] >=  term)
+        @addConstraint(m, aux[i] >= -term)
     end
-
-    # aff.norm + aff.constant + aux <= 0  <-->  aff.norm + aux <= -aff.constant
-    @show (vcat(Int[v.col for v in c.normexpr.aff.vars], startidx:auxidx),
-                            vcat(c.normexpr.aff.coeffs, c.normexpr.coeff*ones(length(startidx:auxidx))),
-                            -c.normexpr.aff.constant,
-                            Inf)
-    MathProgBase.addconstr!(m.internalModel,
-                            vcat(Int[v.col for v in c.normexpr.aff.vars], startidx:auxidx),
-                            vcat(c.normexpr.aff.coeffs, c.normexpr.coeff*ones(length(startidx:auxidx))),
-                            -c.normexpr.aff.constant,
-                            Inf)
-    m.numAuxCols += auxidx - m.numCols
+    γ = ne.coeff
+    @addConstraint(m, sum{γ*aux[i], i=1:N} + ne.aff <= 0)
     nothing
 end
+
+# function process_constraint(m::Model, c::NormConstraint{1})
+#     auxidx = m.numCols + m.numAuxCols
+#     startidx = auxidx + 1
+#     for term in c.normexpr.norm.terms
+#         MathProgBase.addvar!(m.internalModel, 0.0, Inf, 0.0)
+#         auxidx += 1
+#         # aux >= aff  <-->  aux - aff.terms >= aff.constant  <--> -aux + aff.terms <= -aff.constant
+#         @show (vcat(Int[v.col for v in term.vars], auxidx),
+#                                 vcat(term.coeffs, -1.0),
+#                                 -Inf,
+#                                 -term.constant)
+#         MathProgBase.addconstr!(m.internalModel,
+#                                 vcat(Int[v.col for v in term.vars], auxidx),
+#                                 vcat(term.coeffs, -1.0),
+#                                 -Inf,
+#                                 -term.constant)
+#         # aux >= -aff  <-->  aux + aff.norm >= -aff.constant
+#         @show (vcat(Int[v.col for v in term.vars], auxidx),
+#                                 vcat(term.coeffs, 1.0),
+#                                 -term.constant,
+#                                 Inf)
+#         MathProgBase.addconstr!(m.internalModel,
+#                                 vcat(Int[v.col for v in term.vars], auxidx),
+#                                 vcat(term.coeffs, 1.0),
+#                                 -term.constant,
+#                                 Inf)
+#     end
+
+#     # aff.norm + aff.constant + aux <= 0  <-->  aff.norm + aux <= -aff.constant
+#     @show (vcat(Int[v.col for v in c.normexpr.aff.vars], startidx:auxidx),
+#                             vcat(c.normexpr.aff.coeffs, c.normexpr.coeff*ones(length(startidx:auxidx))),
+#                             -c.normexpr.aff.constant,
+#                             Inf)
+#     MathProgBase.addconstr!(m.internalModel,
+#                             vcat(Int[v.col for v in c.normexpr.aff.vars], startidx:auxidx),
+#                             vcat(c.normexpr.aff.coeffs, c.normexpr.coeff*ones(length(startidx:auxidx))),
+#                             -c.normexpr.aff.constant,
+#                             Inf)
+#     m.numAuxCols += auxidx - m.numCols
+#     nothing
+# end
 
 function process_constraint(m::Model, c::NormConstraint{2})
     soc = c.normexpr
-    MathProgBase.addvar!(m.internalModel, 0.0, Inf, 0.0)
-    auxidx = m.numCols + m.numAuxCols + 1
-    startidx = auxidx
-    @show vcat(Int[v.col for v in soc.aff.vars], auxidx), vcat(soc.aff.coeffs, 1.0), -soc.aff.constant, -soc.aff.constant
-    MathProgBase.addconstr!(m.internalModel,
-                            vcat(Int[v.col for v in soc.aff.vars], auxidx),
-                            vcat(soc.aff.coeffs, 1.0),
-                            -soc.aff.constant,
-                            -soc.aff.constant)
-    for term in soc.norm.terms
-        MathProgBase.addvar!(m.internalModel, -Inf, Inf, 0.0)
-        auxidx += 1
-        @show vcat(Int[v.col for v in term.vars], auxidx), vcat(term.coeffs, -1.0), 0.0, 0.0
-        MathProgBase.addconstr!(m.internalModel,
-                                vcat(Int[v.col for v in term.vars], auxidx),
-                                vcat((c.coeff^2)*term.coeffs, -1.0),
-                                -term.constant,
-                                -term.constant)
+    N = length(soc.norm.terms)
+    @defVar(m, t[0:N])
+    setLower(t[0], 0.0)
+    @addConstraint(m, soc.aff == -t[0])
+    γ = soc.coeff^2
+    for i in 1:N
+        term = soc.norm.terms[i]
+        @addConstraint(m, t[i] == γ*term)
     end
-    @show Int[], Float64[], collect(startidx:auxidx), collect(startidx:auxidx), vcat(-1.0, ones(auxidx-startidx)), '<', 0.0
-    MathProgBase.addquadconstr!(m.internalModel,
-                                Int[],
-                                Float64[],
-                                collect(startidx:auxidx),
-                                collect(startidx:auxidx),
-                                vcat(-1.0, ones(auxidx-startidx)),
-                                '<',
-                                0.0)
-    m.numAuxCols += auxidx - m.numCols
+    @addConstraint(m, sum{t[i]^2, i=1:N} <= t[0]^2)
     nothing
 end
 
+# function process_constraint(m::Model, c::NormConstraint{2})
+#     soc = c.normexpr
+#     MathProgBase.addvar!(m.internalModel, 0.0, Inf, 0.0)
+#     auxidx = m.numCols + m.numAuxCols + 1
+#     startidx = auxidx
+#     @show vcat(Int[v.col for v in soc.aff.vars], auxidx), vcat(soc.aff.coeffs, 1.0), -soc.aff.constant, -soc.aff.constant
+#     MathProgBase.addconstr!(m.internalModel,
+#                             vcat(Int[v.col for v in soc.aff.vars], auxidx),
+#                             vcat(soc.aff.coeffs, 1.0),
+#                             -soc.aff.constant,
+#                             -soc.aff.constant)
+#     for term in soc.norm.terms
+#         MathProgBase.addvar!(m.internalModel, -Inf, Inf, 0.0)
+#         auxidx += 1
+#         @show vcat(Int[v.col for v in term.vars], auxidx), vcat(term.coeffs, -1.0), 0.0, 0.0
+#         MathProgBase.addconstr!(m.internalModel,
+#                                 vcat(Int[v.col for v in term.vars], auxidx),
+#                                 vcat((c.coeff^2)*term.coeffs, -1.0),
+#                                 -term.constant,
+#                                 -term.constant)
+#     end
+#     @show Int[], Float64[], collect(startidx:auxidx), collect(startidx:auxidx), vcat(-1.0, ones(auxidx-startidx)), '<', 0.0
+#     MathProgBase.addquadconstr!(m.internalModel,
+#                                 Int[],
+#                                 Float64[],
+#                                 collect(startidx:auxidx),
+#                                 collect(startidx:auxidx),
+#                                 vcat(-1.0, ones(auxidx-startidx)),
+#                                 '<',
+#                                 0.0)
+#     m.numAuxCols += auxidx - m.numCols
+#     nothing
+# end
+
 function process_constraint(m::Model, c::NormConstraint{Inf})
-    MathProgBase.addvar!(m.internalModel, 0.0, Inf, 0.0)
-    auxidx = m.numCols + m.numAuxCols + 1
+    @defVar(m, aux >= 0)
     for term in c.normexpr.norm.terms
-        # aux >= aff  <-->  aux - aff.terms >= aff.constant  <--> -aux + aff.terms <= -aff.constant
-        @show (vcat(Int[v.col for v in term.vars], auxidx),
-                                vcat(term.coeffs, -1.0),
-                                -Inf,
-                                -term.constant)
-        MathProgBase.addconstr!(m.internalModel,
-                                vcat(Int[v.col for v in term.vars], auxidx),
-                                vcat(term.coeffs, -1.0),
-                                -Inf,
-                                -term.constant)
-        # aux >= -aff  <-->  aux + aff.norm >= -aff.constant
-        @show (vcat(Int[v.col for v in term.vars], auxidx),
-                                vcat(term.coeffs, 1.0),
-                                -term.constant,
-                                Inf)
-        MathProgBase.addconstr!(m.internalModel,
-                                vcat(Int[v.col for v in term.vars], auxidx),
-                                vcat(term.coeffs, 1.0),
-                                -term.constant,
-                                Inf)
+        @addConstraint(m, aux >=  term)
+        @addConstraint(m, aux >= -term)
     end
-    m.numAuxCols += 1
     nothing
 end
+
+# function process_constraint(m::Model, c::NormConstraint{Inf})
+#     MathProgBase.addvar!(m.internalModel, 0.0, Inf, 0.0)
+#     auxidx = m.numCols + m.numAuxCols + 1
+#     for term in c.normexpr.norm.terms
+#         # aux >= aff  <-->  aux - aff.terms >= aff.constant  <--> -aux + aff.terms <= -aff.constant
+#         @show (vcat(Int[v.col for v in term.vars], auxidx),
+#                                 vcat(term.coeffs, -1.0),
+#                                 -Inf,
+#                                 -term.constant)
+#         MathProgBase.addconstr!(m.internalModel,
+#                                 vcat(Int[v.col for v in term.vars], auxidx),
+#                                 vcat(term.coeffs, -1.0),
+#                                 -Inf,
+#                                 -term.constant)
+#         # aux >= -aff  <-->  aux + aff.norm >= -aff.constant
+#         @show (vcat(Int[v.col for v in term.vars], auxidx),
+#                                 vcat(term.coeffs, 1.0),
+#                                 -term.constant,
+#                                 Inf)
+#         MathProgBase.addconstr!(m.internalModel,
+#                                 vcat(Int[v.col for v in term.vars], auxidx),
+#                                 vcat(term.coeffs, 1.0),
+#                                 -term.constant,
+#                                 Inf)
+#     end
+#     m.numAuxCols += 1
+#     nothing
+# end
 
 function addSOS(m::Model)
     for i in 1:length(m.sosconstr)

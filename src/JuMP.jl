@@ -484,14 +484,14 @@ getValue(arr::Array{QuadExpr}) = map(getValue, arr)
 ##########################################################################
 # Norm
 # Container for √(∑ expr)
-type GenericNorm{T,S<:GenericAffExpr}
-    terms::Vector{S}
+type GenericNorm{Power,C,V}
+    terms::Vector{GenericAffExpr{C,V}}
 end
 
-typealias Norm{T} GenericNorm{T,AffExpr}
+typealias Norm{T} GenericNorm{T,Float64,Variable}
 
-Base.norm(x::Array{Variable})  = Norm{2}(reshape(x,length(x)))
-Base.norm{T<:GenericAffExpr}(x::Array{T})  = Norm{2,T}(reshape(x,length(x)))
+Base.norm(x::Array{Variable})  = GenericNorm{2,Float64,Variable}(reshape(x,length(x)))
+Base.norm{C,V}(x::Array{GenericAffExpr{C,V}})  = GenericNorm{2,C,V}(reshape(x,length(x)))
 Base.norm(x::JuMPArray{Variable}) = Norm{2}(collect(x.innerArray))
 function Base.norm(x::JuMPDict{Variable})
     arr = Array(Variable, length(x))
@@ -501,25 +501,30 @@ function Base.norm(x::JuMPDict{Variable})
     Norm{2}(arr)
 end
 
-Base.copy{T,S}(x::GenericNorm{T,S}) = GenericNorm{T,S}(copy(x.terms))
+Base.copy{Power,C,V}(x::GenericNorm{Power,C,V}) = GenericNorm{Power,C,V}(copy(x.terms))
 
-Base.convert{T,S}(::Type{GenericNorm{T,S}}, x::Array{S}) = GenericNorm{T,S}(convert(Vector{S}, vec(x)))
+Base.convert{Power,C,V}(::Type{GenericNorm{Power,C,V}}, x::Array) =
+    GenericNorm{Power,C,V}(convert(Vector{GenericAffExpr{C,V}}, vec(x)))
 
 ##########################################################################
 # NormExpr
 # Container for expressions containing Norms and AffExprs
-type GenericNormExpr{T,S}
-    norm::GenericNorm{T,S}
-    coeff::Float64
-    aff::AffExpr
+type GenericNormExpr{Power,C,V}
+    norm::GenericNorm{Power,C,V}
+    coeff::C
+    aff::GenericAffExpr{C,V}
 end
 
-typealias NormExpr{T} GenericNormExpr{T,AffExpr}
+GenericNormExpr{Power,C,V}(norm::GenericNorm{Power,C,V}) =
+    GenericNormExpr{Power,C,V}(norm, one(C), zero(GenericAffExpr{C,V}))
 
-Base.copy{T,S}(x::GenericNormExpr{T,S}) = GenericNormExpr{T,S}(copy(x.norm), x.coeff, copy(x.aff))
+typealias NormExpr{Power} GenericNormExpr{Power,Float64,Variable}
 
-Base.convert{T,S,R}(::Type{GenericNormExpr{T,GenericAffExpr{R,S}}}, x::GenericNorm{T,S}) =
-    GenericNormExpr{T,S}(x, one(R), zero(GenericAffExpr{R,S}))
+Base.copy{Power,C,V}(x::GenericNormExpr{Power,C,V}) =
+    GenericNormExpr{Power,C,V}(copy(x.norm), copy(x.coeff), copy(x.aff))
+
+Base.convert{Power,C,V}(::Type{GenericNormExpr{Power,C,V}}, x::GenericNorm{Power,C,V}) =
+    GenericNormExpr{Power,C,V}(x, one(C), zero(GenericAffExpr{C,V}))
 
 ##########################################################################
 # JuMPConstraint
@@ -731,16 +736,16 @@ end
 # SOCConstraint is a second-order cone constraint of the form
 # ||Ax-b||₂ + cᵀx + d ≤ 0
 
-type GenericNormConstraint{T,S<:GenericAffExpr} <: JuMPConstraint
-    normexpr::GenericNormExpr{T,S}
+type GenericNormConstraint{Power,T<:GenericNormExpr} <: JuMPConstraint
+    normexpr::T
 end
 
-typealias NormConstraint{T} GenericNormConstraint{T,AffExpr}
+typealias NormConstraint{Power} GenericNormConstraint{Power,NormExpr}
 
-function addConstraint{T,S}(m::Model, c::GenericNormConstraint{T,S})
+function addConstraint{T<:GenericNormConstraint}(m::Model, c::T)
     push!(m.normconstr,c)
     m.internalModelLoaded = false
-    ConstraintRef{GenericNormConstraint{T,S}}(m,length(m.normconstr))
+    ConstraintRef{T}(m,length(m.normconstr))
 end
 
 ##########################################################################
@@ -858,10 +863,10 @@ else
 end
 # Writers - we support MPS (MILP + QuadObj), LP (MILP)
 include("writers.jl")
-# Solvers
-include("solvers.jl")
 # Macros - @defVar, sum{}, etc.
 include("macros.jl")
+# Solvers
+include("solvers.jl")
 # Callbacks - lazy, cuts, ...
 include("callbacks.jl")
 # Pretty-printing of JuMP-defined types.
