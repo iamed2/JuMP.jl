@@ -275,7 +275,7 @@ function parseSum(x::Expr, aff::Symbol, lcoeffs, rcoeffs)
     code
 end
 
-function parseNorm(x::Expr, aff::Symbol, lcoeffs, rcoeffs, normtype=:(Norm{2}))
+function parseNorm(x::Expr, aff::Symbol, lcoeffs, rcoeffs; normtype=:(Norm{2}))
     @assert string(x.args[1])[1:4] == "norm"
     # we have a filter condition
     if isexpr(x.args[2],:parameters)

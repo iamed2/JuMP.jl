@@ -27,8 +27,13 @@ function solve(m::Model; suppress_warnings=false, ignore_solve_hook=(m.solvehook
         return solvenlp(m, suppress_warnings=suppress_warnings)
     end
 
-    if isa(m.solver,UnsetSolver) &&
-      (length(m.obj.qvars1) > 0 || length(m.quadconstr) > 0 || length(m.normconstr) > 0)
+    anySOC = any(m.normconstr) do c
+        isa(c,NormConstraint{2})
+    end
+
+    anyQuad = length(m.obj.qvars1) > 0 || length(m.quadconstr) > 0 || anySOC
+
+    if isa(m.solver,UnsetSolver) && anyQuad
         m.solver = MathProgBase.defaultQPsolver
     end
     if anyInts
@@ -89,40 +94,118 @@ function addQuadratics(m::Model)
             error("Solver does not support quadratic constraints")
         end
     end
+    nothing
+end
 
-    auxidx = m.numCols
+function addTransConstrs(m::Model)
     for c in m.normconstr
-        soc = c.normexpr
+        process_constraint(m,c)
+    end
+    nothing
+end
+
+function process_constraint(m::Model, c::NormConstraint{1})
+    auxidx = m.numCols + m.numAuxCols
+    startidx = auxidx + 1
+    for term in c.normexpr.norm.terms
         MathProgBase.addvar!(m.internalModel, 0.0, Inf, 0.0)
         auxidx += 1
-        startidx = auxidx
-        @show vcat(Int[v.col for v in soc.aff.vars], auxidx), vcat(soc.aff.coeffs, 1.0), -soc.aff.constant, -soc.aff.constant
+        # aux >= aff  <-->  aux - aff.terms >= aff.constant  <--> -aux + aff.terms <= -aff.constant
+        @show (vcat(Int[v.col for v in term.vars], auxidx),
+                                vcat(term.coeffs, -1.0),
+                                -Inf,
+                                -term.constant)
         MathProgBase.addconstr!(m.internalModel,
-                                vcat(Int[v.col for v in soc.aff.vars], auxidx),
-                                vcat(soc.aff.coeffs, 1.0),
-                                -soc.aff.constant,
-                                -soc.aff.constant)
-        for term in soc.norm.terms
-            MathProgBase.addvar!(m.internalModel, -Inf, Inf, 0.0)
-            auxidx += 1
-            @show vcat(Int[v.col for v in term.vars], auxidx), vcat(term.coeffs, -1.0), 0.0, 0.0
-            MathProgBase.addconstr!(m.internalModel,
-                                    vcat(Int[v.col for v in term.vars], auxidx),
-                                    vcat(term.coeffs, -1.0),
-                                    -term.constant,
-                                    -term.constant)
-        end
-        @show Int[], Float64[], collect(startidx:auxidx), collect(startidx:auxidx), vcat(-1.0, ones(auxidx-startidx)), '<', 0.0
-        MathProgBase.addquadconstr!(m.internalModel,
-                                    Int[],
-                                    Float64[],
-                                    collect(startidx:auxidx),
-                                    collect(startidx:auxidx),
-                                    vcat(-1.0, ones(auxidx-startidx)),
-                                    '<',
-                                    0.0)
+                                vcat(Int[v.col for v in term.vars], auxidx),
+                                vcat(term.coeffs, -1.0),
+                                -Inf,
+                                -term.constant)
+        # aux >= -aff  <-->  aux + aff.norm >= -aff.constant
+        @show (vcat(Int[v.col for v in term.vars], auxidx),
+                                vcat(term.coeffs, 1.0),
+                                -term.constant,
+                                Inf)
+        MathProgBase.addconstr!(m.internalModel,
+                                vcat(Int[v.col for v in term.vars], auxidx),
+                                vcat(term.coeffs, 1.0),
+                                -term.constant,
+                                Inf)
     end
+
+    # aff.norm + aff.constant + aux <= 0  <-->  aff.norm + aux <= -aff.constant
+    @show (vcat(Int[v.col for v in c.normexpr.aff.vars], startidx:auxidx),
+                            vcat(c.normexpr.aff.coeffs, c.normexpr.coeff*ones(length(startidx:auxidx))),
+                            -c.normexpr.aff.constant,
+                            Inf)
+    MathProgBase.addconstr!(m.internalModel,
+                            vcat(Int[v.col for v in c.normexpr.aff.vars], startidx:auxidx),
+                            vcat(c.normexpr.aff.coeffs, c.normexpr.coeff*ones(length(startidx:auxidx))),
+                            -c.normexpr.aff.constant,
+                            Inf)
     m.numAuxCols += auxidx - m.numCols
+    nothing
+end
+
+function process_constraint(m::Model, c::NormConstraint{2})
+    soc = c.normexpr
+    MathProgBase.addvar!(m.internalModel, 0.0, Inf, 0.0)
+    auxidx = m.numCols + m.numAuxCols + 1
+    startidx = auxidx
+    @show vcat(Int[v.col for v in soc.aff.vars], auxidx), vcat(soc.aff.coeffs, 1.0), -soc.aff.constant, -soc.aff.constant
+    MathProgBase.addconstr!(m.internalModel,
+                            vcat(Int[v.col for v in soc.aff.vars], auxidx),
+                            vcat(soc.aff.coeffs, 1.0),
+                            -soc.aff.constant,
+                            -soc.aff.constant)
+    for term in soc.norm.terms
+        MathProgBase.addvar!(m.internalModel, -Inf, Inf, 0.0)
+        auxidx += 1
+        @show vcat(Int[v.col for v in term.vars], auxidx), vcat(term.coeffs, -1.0), 0.0, 0.0
+        MathProgBase.addconstr!(m.internalModel,
+                                vcat(Int[v.col for v in term.vars], auxidx),
+                                vcat((c.coeff^2)*term.coeffs, -1.0),
+                                -term.constant,
+                                -term.constant)
+    end
+    @show Int[], Float64[], collect(startidx:auxidx), collect(startidx:auxidx), vcat(-1.0, ones(auxidx-startidx)), '<', 0.0
+    MathProgBase.addquadconstr!(m.internalModel,
+                                Int[],
+                                Float64[],
+                                collect(startidx:auxidx),
+                                collect(startidx:auxidx),
+                                vcat(-1.0, ones(auxidx-startidx)),
+                                '<',
+                                0.0)
+    m.numAuxCols += auxidx - m.numCols
+    nothing
+end
+
+function process_constraint(m::Model, c::NormConstraint{Inf})
+    MathProgBase.addvar!(m.internalModel, 0.0, Inf, 0.0)
+    auxidx = m.numCols + m.numAuxCols + 1
+    for term in c.normexpr.norm.terms
+        # aux >= aff  <-->  aux - aff.terms >= aff.constant  <--> -aux + aff.terms <= -aff.constant
+        @show (vcat(Int[v.col for v in term.vars], auxidx),
+                                vcat(term.coeffs, -1.0),
+                                -Inf,
+                                -term.constant)
+        MathProgBase.addconstr!(m.internalModel,
+                                vcat(Int[v.col for v in term.vars], auxidx),
+                                vcat(term.coeffs, -1.0),
+                                -Inf,
+                                -term.constant)
+        # aux >= -aff  <-->  aux + aff.norm >= -aff.constant
+        @show (vcat(Int[v.col for v in term.vars], auxidx),
+                                vcat(term.coeffs, 1.0),
+                                -term.constant,
+                                Inf)
+        MathProgBase.addconstr!(m.internalModel,
+                                vcat(Int[v.col for v in term.vars], auxidx),
+                                vcat(term.coeffs, 1.0),
+                                -term.constant,
+                                Inf)
+    end
+    m.numAuxCols += 1
     nothing
 end
 
@@ -275,6 +358,7 @@ function solveLP(m::Model; suppress_warnings=false)
 
         MathProgBase.loadproblem!(m.internalModel, A, m.colLower, m.colUpper, f, rowlb, rowub, m.objSense)
         addQuadratics(m)
+        addTransConstrs(m)
         m.internalModelLoaded = true
     end
 
@@ -371,6 +455,7 @@ function solveMIP(m::Model; suppress_warnings=false)
         addSOS(m)
 
         addQuadratics(m)
+        addTransConstrs(m)
         registercallbacks(m)
 
         m.internalModelLoaded = true
@@ -783,6 +868,7 @@ function buildInternalModel(m::Model)
     A = prepConstrMatrix(m)
     MathProgBase.loadproblem!(m.internalModel, A, m.colLower, m.colUpper, f, rowlb, rowub, m.objSense)
     addQuadratics(m)
+    addTransConstrs(m)
 
     if anyInts # do MIP stuff
         colCats = vartypes_without_fixed(m)
