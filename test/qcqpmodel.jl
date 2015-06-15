@@ -220,7 +220,7 @@ context("With solver $(typeof(solver))") do
     @setObjective(m, Max, x[1]+x[2])
 
     @fact solve(m) => :Optimal
-    @fact getObjectiveValue(modN) => roughly(2+sqrt(2), 1e-5)
+    @fact getObjectiveValue(m) => roughly(2+sqrt(2), 1e-5)
     @fact norm(getValue(x)-[1+sqrt(1/2),1+sqrt(1/2),1]) => roughly(0, 1e-6)
 end; end; end
 

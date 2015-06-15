@@ -394,7 +394,6 @@ function solveLP(m::Model; suppress_warnings=false)
 
         MathProgBase.loadproblem!(m.internalModel, A, m.colLower, m.colUpper, f, rowlb, rowub, m.objSense)
         addQuadratics(m)
-        addTransConstrs(m)
         m.internalModelLoaded = true
     end
 
@@ -491,7 +490,6 @@ function solveMIP(m::Model; suppress_warnings=false)
         addSOS(m)
 
         addQuadratics(m)
-        addTransConstrs(m)
         registercallbacks(m)
 
         m.internalModelLoaded = true
@@ -904,7 +902,6 @@ function buildInternalModel(m::Model)
     A = prepConstrMatrix(m)
     MathProgBase.loadproblem!(m.internalModel, A, m.colLower, m.colUpper, f, rowlb, rowub, m.objSense)
     addQuadratics(m)
-    addTransConstrs(m)
 
     if anyInts # do MIP stuff
         colCats = vartypes_without_fixed(m)
