@@ -347,8 +347,6 @@ end
 # A bunch of operator junk to make matrix multiplication and friends act
 # reasonably sane with JuMP types
 
-typealias JuMPTypes Union(Variable,AffExpr,QuadExpr)
-
 Base.promote_rule{R<:Real}(::Type{Variable},::Type{R}       ) = AffExpr
 Base.promote_rule         (::Type{Variable},::Type{AffExpr} ) = AffExpr
 Base.promote_rule         (::Type{Variable},::Type{QuadExpr}) = QuadExpr

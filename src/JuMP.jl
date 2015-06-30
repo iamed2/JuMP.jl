@@ -63,7 +63,6 @@ type Model
 
     # Column data
     numCols::Int
-    numAuxCols::Int
     colNames::Vector{String}
     colNamesIJulia::Vector{String}
     colLower::Vector{Float64}
@@ -492,7 +491,8 @@ typealias Norm{T} GenericNorm{T,Float64,Variable}
 
 Base.norm(x::Array{Variable})  = GenericNorm{2,Float64,Variable}(reshape(x,length(x)))
 Base.norm{C,V}(x::Array{GenericAffExpr{C,V}})  = GenericNorm{2,C,V}(reshape(x,length(x)))
-Base.norm(x::JuMPArray{Variable}) = Norm{2}(collect(x.innerArray))
+Base.norm{T<:Union(Variable,GenericAffExpr)}(x::JuMPArray{T}) =
+    Norm{2}(collect(x.innerArray))
 function Base.norm(x::JuMPDict{Variable})
     arr = Array(Variable, length(x))
     for (it,v) in enumerate(x)
