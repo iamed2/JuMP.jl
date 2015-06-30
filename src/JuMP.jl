@@ -489,11 +489,23 @@ end
 
 typealias Norm{T} GenericNorm{T,Float64,Variable}
 
-Base.norm(x::Array{Variable})  = GenericNorm{2,Float64,Variable}(reshape(x,length(x)))
-Base.norm{C,V}(x::Array{GenericAffExpr{C,V}})  = GenericNorm{2,C,V}(reshape(x,length(x)))
-Base.norm{T<:Union(Variable,GenericAffExpr)}(x::JuMPArray{T}) =
-    Norm{2}(collect(x.innerArray))
+Base.norm(x::Vector{Variable}) = vecnorm(x)
+Base.norm{C,V}(x::Array{GenericAffExpr{C,V}}) = vecnorm(x)
+Base.norm{T<:Union(Variable,GenericAffExpr)}(x::JuMPArray{T,1}) = vecnorm(x)
 function Base.norm(x::JuMPDict{Variable})
+    ndims(x) == 1 || error("Cannot use norm() on a multidimensional JuMPDict. Use vecnorm instead.")
+    arr = Array(Variable, length(x))
+    for (it,v) in enumerate(x)
+        arr[it] = v[end]
+    end
+    Norm{2}(arr)
+end
+
+Base.vecnorm(x::Array{Variable}) = Norm{2}(reshape(x,length(x)))
+Base.vecnorm{C,V}(x::Array{GenericAffExpr{C,V}}) = GenericNorm{2,C,V}(reshape(x,length(x)))
+Base.vecnorm{T<:Union(Variable,GenericAffExpr)}(x::JuMPArray{T}) =
+    Norm{2}(collect(x.innerArray))
+function Base.vecnorm(x::JuMPDict{Variable})
     arr = Array(Variable, length(x))
     for (it,v) in enumerate(x)
         arr[it] = v[end]

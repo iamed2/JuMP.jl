@@ -7,6 +7,11 @@ function solve(m::Model; suppress_warnings=false, ignore_solve_hook=(m.solvehook
 
     ignore_solve_hook || return m.solvehook(m; suppress_warnings=suppress_warnings, kwargs...)
 
+    # process norm constraints that require auxiliary variables/constraints added
+    for c in m.normconstr
+        process_constraint(m,c)
+    end
+
     # Analyze model to see if any integers
     anyInts = (length(m.sosconstr) > 0) ||
         any(c-> !(c == :Cont || c == :Fixed), m.colCat)
@@ -26,8 +31,6 @@ function solve(m::Model; suppress_warnings=false, ignore_solve_hook=(m.solvehook
         end
         return solvenlp(m, suppress_warnings=suppress_warnings)
     end
-
-    addTransConstrs(m)
 
     anyQuad = length(m.obj.qvars1) > 0 || length(m.quadconstr) > 0
 
@@ -91,13 +94,6 @@ function addQuadratics(m::Model)
         else
             error("Solver does not support quadratic constraints")
         end
-    end
-    nothing
-end
-
-function addTransConstrs(m::Model)
-    for c in m.normconstr
-        process_constraint(m,c)
     end
     nothing
 end
